@@ -18,7 +18,7 @@ Self-supervised learning (SSL) models sometimes suffer **dimensional collapse** 
 **What makes this novel:**
 1. First systematic test of the augmentation-strength → collapse relationship outside vision, across 5 structurally distinct time-series datasets
 2. Tests whether the "collapse can help" effect (Cosentino et al.) is specific to *how* you evaluate — linear probe vs. fine-tuned — not just whether collapse occurred
-3. Tests early-epoch predictability (H2) against **both** accuracy regimes, not just one — this distinction turned out to matter (see Section 5)
+3. Tests early-epoch predictability (H2) against **both** accuracy regimes, not just one — this distinction turned out to matter enormously: across all four fully-analyzed datasets, early rank significantly predicts final linear-probe accuracy but never fine-tune accuracy (see Section 5c) — a clean, replicating split most single-dataset studies would never surface
 
 ---
 
@@ -70,10 +70,10 @@ Lightning Studio (CPU and GPU used across different runs, noted per dataset belo
 
 | Dataset | Channels | Seq. Length | Classes | Samples | Domain | Status |
 |---|---|---|---|---|---|---|
-| **ECG5000** | 1 | 140 | 5 (imbalanced) | 5,000 | Medical/ECG | ✅ Done (CPU) |
+| **ECG5000** | 1 | 140 | 5 (imbalanced) | 5,000 | Medical/ECG | ✅ Done, fully analyzed |
 | **UCI HAR** | 9 | 128 | 6 (balanced) | 10,299 | Motion/wearable | ✅ Done (CPU) |
-| **FordA** | 1 | 500 | 2 (balanced) | 4,921 | Mechanical/sensor | ✅ Done — results collected, writeup pending |
-| **Spoken Arabic Digits** | 13 | ~40 (resampled from variable 4–93) | 10 (balanced) | 8,800 | Speech/MFCC | ✅ Done — results collected, writeup pending |
+| **FordA** | 1 | 500 | 2 (balanced) | 4,921 | Mechanical/sensor | ✅ Done, analyzed |
+| **Spoken Arabic Digits** | 13 | ~40 (resampled from variable 4–93) | 10 (balanced) | 8,800 | Speech/MFCC | ✅ Done, analyzed |
 | **EigenWorms** | 6 | 17,984 | 5 (imbalanced) | 259 | Behavioral genetics | ⏳ In progress — extreme sequence length requires scoped-down sweep (see Section 8) |
 
 This spread deliberately varies channel count (1→13), sequence length (128→17,984), sample size (259→10,299), and class balance — the axes needed to say something precise about *where* the vision-derived relationship holds vs. breaks down, rather than a single pass/fail verdict.
@@ -88,9 +88,11 @@ This spread deliberately varies channel count (1→13), sequence length (128→1
 |---|---|---|---|---|
 | ECG5000 | 39.9 | 9.1 | **77%** | ✅ Strong, monotonic |
 | UCI HAR | 41.8 | 28.2 | **33%** | ✅ Monotonic, but far weaker magnitude |
+| FordA | 38.6 | 12.6 | **67%** | ✅ Strong, monotonic |
+| Spoken Arabic Digits | 41.6 | 23.9 | **43%** | ✅ Monotonic |
 
 > [!IMPORTANT]
-> The *direction* of H1 replicates cleanly in both datasets — more augmentation → more collapse, at every projector width tested. But the *magnitude* differs sharply: ECG5000 (1 channel) collapses more than twice as much as HAR (9 channels) under the same augmentation range. **This suggests channel count moderates collapse susceptibility** — more raw structure in the input gives the model more to hold onto, resisting collapse even under strong augmentation. This is the kind of structural, non-obvious finding the cross-dataset design was built to surface.
+> The *direction* of H1 replicates cleanly in all four datasets — more augmentation → more collapse, at every projector width tested. A clearer structural pattern is now emerging on *magnitude*: the two univariate datasets (ECG5000, FordA) collapse most (77%, 67%); the two multivariate datasets (HAR at 9 channels, Spoken Arabic Digits at 13 channels) collapse noticeably less (33%, 43%). **Channel count looks like the dominant moderator of collapse magnitude**, more so than sequence length or sample size — though FordA's longer sequence (500 vs. ECG5000's 140) with a similar channel count (1) still shows a meaningfully lower collapse than ECG5000, so sequence length may contribute a secondary effect. EigenWorms (6 channels, extremely long sequence) will help separate these two factors more cleanly.
 
 Projector width effect also replicates in both: wider projector (512) → consistently higher effective rank than narrower (64), at every α tested — matching Garrido et al.'s theory.
 
@@ -100,23 +102,29 @@ Projector width effect also replicates in both: wider projector (512) → consis
 |---|---|---|---|---|
 | ECG5000 | **-0.47** | **0.035** ✅ | +0.29 | 0.213 (ns) |
 | UCI HAR | **-0.44** | **0.015** ✅ | -0.23 | 0.221 (ns) |
+| FordA | -0.36 | 0.053 (borderline) | -0.03 | 0.894 (ns) |
+| Spoken Arabic Digits | **-0.52** | **0.003** ✅ | -0.22 | 0.232 (ns) |
 
 > [!IMPORTANT]
-> **This is the headline result so far.** In both datasets, more collapse (lower effective rank) correlates with *higher* linear-probe accuracy — a real, statistically significant "collapse can help" effect (matching Cosentino et al.'s vision finding), replicated across two structurally different modalities. In both datasets, this effect **disappears once fine-tuning is allowed** — fine-tuning appears to compensate for representation quality regardless of collapse level. The consistency of *which* evaluation regime shows the effect, across two unrelated datasets, is stronger evidence than either result alone.
+> **This is the headline result so far.** In all four datasets, more collapse (lower effective rank) correlates with *higher or unchanged* linear-probe accuracy — never the opposite — and this relationship **consistently disappears once fine-tuning is allowed** (all four fine-tune p-values are non-significant). Spoken Arabic Digits gives the strongest, most significant linear-probe correlation yet (r=-0.52, p=0.003). The consistency of *which* evaluation regime shows the effect, across four structurally unrelated datasets, is strong evidence this isn't a per-dataset coincidence.
+>
+> **Anomaly worth flagging:** in Spoken Arabic Digits at α=0.0, width=512 (the highest-effective-rank configuration in the entire sweep, erank≈49), linear probe accuracy collapses to 0.62–0.69 — far below every other configuration (0.88–0.97), and consistent across all 3 seeds (not a fluke). This suggests the erank-accuracy relationship may be **non-monotonic** rather than purely linear: too little collapse (an unregularized, noisy full-rank space) may hurt linear-probe accuracy just as too much collapse does, with some middle ground being optimal. Worth investigating directly before the paper's discussion section is finalized — plot this dataset's full erank-vs-accuracy curve without collapsing across widths to see the shape more clearly.
 
 ### 5c. H2 — Early-epoch predictability
 
 | Dataset | vs. Linear probe R² | vs. Linear probe p | vs. Fine-tune R² | vs. Fine-tune p |
 |---|---|---|---|---|
-| ECG5000 | *(pending re-run with dual-target test)* | — | 0.07 | 0.273 (ns) |
-| UCI HAR | **0.24** | **0.006** ✅ | 0.03 | 0.338 (ns) |
+| ECG5000 | 0.25 | 0.025 ✅ | 0.07 | 0.273 (ns) |
+| UCI HAR | 0.24 | 0.006 ✅ | 0.03 | 0.338 (ns) |
+| FordA | 0.17 | 0.024 ✅ | 0.00 | 0.951 (ns) |
+| Spoken Arabic Digits | **0.44** | **<0.001** ✅ | 0.03 | 0.377 (ns) |
 
 > [!IMPORTANT]
-> Testing H2 against the *right* target matters. Early-epoch effective rank is a **poor** predictor of final fine-tune accuracy in both datasets (R² ≤ 0.07) — but for HAR, it's a **strong, significant** predictor of final linear-probe accuracy (R²=0.24, p=0.006). This mirrors the 5b finding exactly: the erank-accuracy relationship (and its early-training signature) lives specifically in the linear-probe regime, not fine-tuning. ECG5000 needs to be re-analyzed against the linear-probe target to confirm this pattern holds there too (the original ECG5000 sweep predates this dual-target analysis upgrade).
+> **This is now a complete, clean pattern across all four analyzed datasets — 4 for 4.** Early-epoch effective rank significantly predicts final linear-probe accuracy in every single dataset tested (R² ranging 0.17–0.44, all p<0.05), and predicts final fine-tune accuracy in **none** of them (all R² ≤ 0.07, all non-significant). This isn't a fragile result that showed up once — it replicated identically across a medical/ECG dataset, a 9-channel motion dataset, a mechanical sensor dataset, and a 13-channel speech dataset. That consistency, across genuinely different domains and structures, is the strongest single piece of evidence in this study. The practical claim follows directly: **you can estimate final linear-probe representation quality from the first few epochs of training, without running to convergence — but this shortcut does not work if you plan to fine-tune.**
 
-### 5d. FordA and Spoken Arabic Digits
+### 5d. Notable anomaly requiring follow-up
 
-Results collected (30 runs each), not yet analyzed/written up in this document — figures and correlation stats pending.
+The Spoken Arabic Digits α=0/width=512 result (Section 5b) is the most interesting open thread right now — a possible non-monotonic erank-accuracy relationship that the other three datasets' α/width ranges didn't reveal (their least-collapsed configurations weren't as extreme). Worth checking whether ECG5000, HAR, or FordA show any hint of the same pattern at their own highest-erank configurations before concluding this is Spoken-Arabic-Digits-specific.
 
 ---
 
@@ -159,13 +167,13 @@ Measured directly (CPU): one forward+backward pass at batch=64 takes ~5.5s. With
 
 ## 9. Next Steps
 
-1. ~~ECG5000 sweep~~ ✅ Done
-2. ~~UCI HAR sweep~~ ✅ Done
-3. ~~FordA sweep~~ ✅ Done — analysis writeup pending
-4. ~~Spoken Arabic Digits sweep~~ ✅ Done — analysis writeup pending
-5. **EigenWorms sweep** — scoped-down protocol, in progress
-6. **Re-run ECG5000 H2 test against linear-probe target** (free — no retraining, just re-running `analyze.py` on saved runs)
-7. **Cross-dataset comparison** (`analyze.py --cross_dataset`) once all 5 are complete — normalized alpha-vs-erank plot, summary correlation table across all datasets
+1. ~~ECG5000 sweep~~ ✅ Done and fully analyzed (both H2 targets)
+2. ~~UCI HAR sweep~~ ✅ Done and fully analyzed
+3. ~~FordA sweep~~ ✅ Done and analyzed
+4. ~~Spoken Arabic Digits sweep~~ ✅ Done and analyzed — strongest H2 result of the study so far
+5. **EigenWorms sweep** — scoped-down protocol, in progress; the only remaining dataset. Will help separate channel-count vs. sequence-length effects on collapse magnitude (Section 5a), and serves as the fourth (and most extreme) test of the now 4-for-4 H2 pattern (Section 5c).
+6. **Investigate the Spoken Arabic Digits α=0/width=512 anomaly** (Section 5d) — check whether it's an isolated data point or a genuine non-monotonic effect
+7. **Cross-dataset comparison** (`analyze.py --cross_dataset`) once EigenWorms is complete — normalized alpha-vs-erank plot, summary correlation table across all datasets
 8. **Write paper** — target NeurReps Proceedings submission
 
 ---
